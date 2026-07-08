@@ -8,6 +8,7 @@ carries the clause number and the full, uncut clause text.
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
 import numpy as np
 
@@ -26,6 +27,14 @@ class SearchEngine:
                  bm25_normalizer: str | None = None):
         self.data = data
         self.embeddings = embeddings
+        # (doc_id, section key) -> heading title, and doc_id -> friendly name,
+        # for the provenance metadata on every SearchHit. First occurrence wins,
+        # mirroring build_sections' by_key.
+        self._titles: dict[tuple[str, str], str] = {}
+        for s in data.sections:
+            self._titles.setdefault((s.doc_id, s.key), s.title)
+        self._doc_names = {did: (Path(d.source_path).name or did)
+                           for did, d in data.documents.items()}
         # queries must be normalized exactly like the corpus: the mode chosen
         # at build time is recorded in the manifest; load may override it
         # (an "auto" override resolves to the best backend available here)
@@ -139,9 +148,13 @@ class SearchEngine:
 
     def _hit(self, clause_id: int, score: float, method: str) -> SearchHit:
         c = self.data.clauses[clause_id]
+        keys = section_path(effective_key(c))
+        titles = [self._titles.get((c.doc_id, k), "") for k in keys]
         return SearchHit(clause_number=c.number, text=c.text, score=score,
-                         doc_id=c.doc_id, section_path=section_path(effective_key(c)),
-                         clause_id=c.clause_id, method=method)
+                         doc_id=c.doc_id, section_path=keys,
+                         clause_id=c.clause_id, method=method,
+                         doc_name=self._doc_names.get(c.doc_id, c.doc_id),
+                         section_titles=titles)
 
     # ------------------------------------------------------------ public
     def search(self, query: str, *, method: str = "hybrid", top_k: int = 5,
