@@ -129,7 +129,8 @@ class AgenticSearcher:
         for i, h in enumerate(batch, start=1):
             snippet = h.text[:self.snippet_chars]  # truncation INSIDE the prompt only
             listing.append(f'C{i} (пункт {h.clause_number or "без номера"}, '
-                           f'документ {h.doc_id}):\n{snippet}')
+                           f'документ {h.doc_name or h.doc_id}; путь: {h.breadcrumb}):'
+                           f'\n{snippet}')
         text = prompts.REFLECT_TEMPLATE.format(
             prompt=prompt,
             aspects="\n".join(f"{i}. {a}" for i, a in enumerate(aspects, start=1)),

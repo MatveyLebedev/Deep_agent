@@ -5,6 +5,13 @@ from __future__ import annotations
 from raglib.api import RagIndex
 
 
+def _location(h) -> str:
+    """Provenance header for a hit: document name + titled path chapter→paragraph,
+    e.g. 'charter.md • Статья 12. Наблюдательный совет › 12.1. … › 12.1.4'."""
+    where = h.breadcrumb or f"пункт {h.clause_number or '(без номера)'}"
+    return f"{h.doc_name or h.doc_id} • {where}"
+
+
 def make_tools(index: RagIndex, llm=None) -> list:
     try:
         from langchain_core.tools import tool
@@ -22,8 +29,7 @@ def make_tools(index: RagIndex, llm=None) -> list:
         if not hits:
             return "No matches."
         return "\n\n".join(
-            f"--- {h.doc_id} • пункт {h.clause_number or '(без номера)'} "
-            f"(score={h.score:.3f}) ---\n{h.text}" for h in hits)
+            f"--- {_location(h)} (score={h.score:.3f}) ---\n{h.text}" for h in hits)
 
     @tool
     def rag_toc(doc: str = "") -> str:
@@ -42,8 +48,7 @@ def make_tools(index: RagIndex, llm=None) -> list:
         res = index.agentic_search(prompt, llm=llm, top_k=top_k)
         lines = [f"degraded={res.degraded} iterations={res.iterations}"]
         for h in res.hits:
-            lines.append(f"--- {h.doc_id} • пункт {h.clause_number} "
-                         f"[{h.verdict or '-'}] ---\n{h.text}")
+            lines.append(f"--- {_location(h)} [{h.verdict or '-'}] ---\n{h.text}")
         return "\n\n".join(lines)
 
     return [rag_search, rag_toc, rag_read_section, rag_agentic_search]

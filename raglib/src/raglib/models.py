@@ -66,10 +66,32 @@ class SearchHit:
     text: str                   # full clause text, exact substring of the source md
     score: float
     doc_id: str
-    section_path: list[str]     # ancestor chain, e.g. ["12", "12.1", "12.1.4"]
+    section_path: list[str]     # numeric ancestor chain, e.g. ["12", "12.1", "12.1.4"]
     clause_id: int
     method: str                 # bm25 | vector | hybrid | grep | agentic
     verdict: str | None = None  # agentic search: relevant | partial
+    # --- provenance metadata ---
+    doc_name: str = ""          # friendly document name (source filename; "" -> use doc_id)
+    section_titles: list[str] = field(default_factory=list)
+    # heading title of each section_path level, aligned 1:1 ("" where a level has
+    # no heading of its own, e.g. the leaf clause). Titles already carry the number.
+
+    @property
+    def path(self) -> list[str]:
+        """Readable hierarchical path, chapter -> paragraph: the section title at
+        each level (titles include their own number) or the bare number as a
+        fallback, e.g. ["Статья 12. Наблюдательный совет", "12.1. Компетенция…",
+        "12.1.4"]."""
+        out: list[str] = []
+        for i, num in enumerate(self.section_path):
+            title = self.section_titles[i] if i < len(self.section_titles) else ""
+            out.append(title or num)
+        return out
+
+    @property
+    def breadcrumb(self) -> str:
+        """`path` joined for display: 'Статья 12. … › 12.1. … › 12.1.4'."""
+        return " › ".join(self.path)
 
 
 @dataclass

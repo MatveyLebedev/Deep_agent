@@ -21,6 +21,10 @@ def _assert_output_invariants(index: RagIndex, hits):
         seen.add(h.clause_id)
         if h.clause_number:
             assert h.section_path[-1] == h.clause_number
+        # provenance metadata invariants (doc name + titled path chapter->paragraph)
+        assert h.doc_name                                    # friendly name present
+        assert len(h.section_titles) == len(h.section_path)  # titles align with path
+        assert h.breadcrumb == " › ".join(h.path)            # readable path consistent
 
 
 def test_bm25_returns_whole_numbered_clause(bm25_index):
@@ -50,6 +54,30 @@ def test_oversized_clause_returned_once_and_uncut(vec_index):
         hit = next(h for h in hits if h.clause_number == "12.1.4")
         assert len(hit.text) > 1500
         assert "н) утверждение независимого аудитора" in hit.text
+
+
+def test_hits_carry_document_name_and_titled_path(bm25_index):
+    # provenance metadata: friendly document name + hierarchical path (titles +
+    # numbers) from the top chapter down to the leaf paragraph.
+    hits = bm25_index.search("независимого аудитора", method="bm25", top_k=8)
+    hit = next(h for h in hits if h.clause_number == "12.1.4")
+
+    # document name is the source filename, not just the sanitized doc_id
+    assert hit.doc_id == "charter"
+    assert hit.doc_name == "charter.md"
+
+    # section_titles align 1:1 with the numeric section_path (chapter -> paragraph)
+    assert hit.section_path == ["12", "12.1", "12.1.4"]
+    assert len(hit.section_titles) == len(hit.section_path)
+    assert hit.section_titles[0] == "Статья 12. НАБЛЮДАТЕЛЬНЫЙ СОВЕТ"
+    assert hit.section_titles[1] == "12.1. Компетенция Наблюдательного совета"
+    assert hit.section_titles[2] == ""            # leaf clause has no heading of its own
+
+    # readable path: the title where present, the bare number for the leaf
+    assert hit.path == ["Статья 12. НАБЛЮДАТЕЛЬНЫЙ СОВЕТ",
+                        "12.1. Компетенция Наблюдательного совета", "12.1.4"]
+    assert hit.breadcrumb == ("Статья 12. НАБЛЮДАТЕЛЬНЫЙ СОВЕТ"
+                              " › 12.1. Компетенция Наблюдательного совета › 12.1.4")
 
 
 def test_hybrid_rrf(vec_index):
