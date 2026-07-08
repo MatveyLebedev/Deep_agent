@@ -1,0 +1,26 @@
+# Deep agent — контурный набор зависимостей (отличается от корневого requirements.txt).
+#
+# Что убрано и почему:
+#   docling, langchain-docling  — распознавание делает ЦЕЛЕВАЯ СИСТЕМА (вход = .md);
+#                                 заодно уходят все apt-libs и пре-загрузка моделей.
+#   pandas                      — использовался только docling.export_to_dataframe.
+#   langchain-openai            — в контуре отсутствует; LLM+эмбеддинги → langchain-gigachat
+#                                 (требует правки providers.py / retrieval.py, см. DEPLOY_CONTOUR.md).
+#   langgraph-checkpoint-sqlite — только для HITL-resume; иначе MemorySaver (в ядре langgraph).
+#
+# Версии — из окружения контура (сверено с requirements.txt сервиса SBF.ML.AssistantUnified
+# и реестром PIP по фото). Помеченные (?) — ТОЧНУЮ версию подтвердить при запуске в контуре.
+
+deepagents==0.5.9
+langchain==1.3.9
+langchain-community==0.3.30
+langgraph>=1.2.6
+langgraph-checkpoint==4.0.3          # базовый; sqlite-вариант НЕ нужен (см. выше)
+langchain-gigachat==0.5.0            # вместо langchain-openai: и chat, и embeddings
+langsmith==0.8.18                    # (?) в контуре встречались 0.8.18 / 0.8.2 / 0.6.3
+langfuse==4.3.1
+numpy==2.3.3
+rank-bm25==0.2.2
+pydantic==2.11.9
+requests==2.33.0
+# python-dotenv                      # опционально: если переменные задаёт платформа контура — не нужен
