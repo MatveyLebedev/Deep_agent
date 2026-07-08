@@ -1,0 +1,27 @@
+services:
+  agent:
+    build: .
+    image: deep-agent-app:latest
+    env_file: .env
+    stdin_open: true
+    tty: true
+    working_dir: /workspace
+    command: ["--help"]
+    # Урезание привилегий: контейнер без capabilities и без эскалации прав.
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    # Образ работает от пользователя agent (uid 1000). Если каталоги томов на
+    # хосте принадлежат другому uid и запись падает с "Permission denied" —
+    # раскомментируйте и подставьте uid:gid владельца каталогов:
+    # user: "1000:1000"
+    volumes:
+      # Данные и результаты (исходники и docling-модели уже ВНУТРИ образа).
+      - ./input:/workspace/input:ro          # входные PDF (только чтение)
+      - ./output:/workspace/output:rw         # результаты прогонов
+      - ./work:/workspace/work:rw             # рабочий каталог + кэш (./work/cache)
+      - ./agents:/workspace/agents:rw         # созданные агенты (create)
+      - ./certs:/workspace/certs:ro           # корневой CA Минцифры для GigaChat
+      # ПРИМЕЧАНИЕ: ./models НЕ монтируем — иначе пустой хост-каталог перекрыл бы
+      # вшитые в образ docling-модели (/workspace/models/docling) и сломал бы
+      # офлайн-конвертацию PDF.

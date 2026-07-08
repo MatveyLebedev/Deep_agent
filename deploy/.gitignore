@@ -1,0 +1,28 @@
+# Секреты / окружение
+.env
+.env.local
+.env.*.local
+
+# Сертификаты (переносятся вне git)
+certs/*.pem
+certs/*.crt
+certs/*.cer
+
+# Артефакты прогонов и состояние
+output/*
+work/*
+agents/*
+input/*
+!**/.gitkeep
+!certs/README.md
+
+# Docling-модели (большие, регенерируются при сборке образа)
+models/*
+!models/.gitkeep
+
+# Python / ОС
+__pycache__/
+*.py[cod]
+.DS_Store
+*.db
+**/.embed_cache/

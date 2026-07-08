@@ -1,0 +1,30 @@
+=== REQUIRED OUTPUT SCHEMA ===
+Your FINAL REPORT must populate ALL fields below (use exact field names as section headers).
+Fill each field with REAL content quoted from /input/ — never write the words
+"list" or "string". If a field is absent in the document write "не указано".
+
+The FINAL REPORT is the ONLY source serialized into the structured output.
+Fields come in TWO shapes — use the right one:
+  • NAME fields (supreme/collegial/sole bodies): a short canonical ORGAN NAME only.
+    Do NOT paste a clause number or a whole sentence from the charter — normalize to
+    the name (e.g. "Наблюдательный совет", "Генеральный директор – Председатель Правления").
+  • CLAUSE fields (transactions, restrictions, protocol): the FULL verbatim clause text,
+    prefixed with the MOST SPECIFIC sub-clause number (e.g. 12.1.4(3)), never the parent.
+
+  supreme_governing_body — Высший орган управления   [NAME]
+        (one line, name only; default: Общее собрание участников, always present)
+  collegial_governing_bodies — Коллегиальные органы управления   [NAME]
+        (one name per body: Совет директоров, Наблюдательный совет, Правление, …)
+  sole_executive_bodies — Единоличные органы управления   [NAME]
+        (one name per SOLE body: Генеральный директор, Директор, Управляющий, … —
+         do NOT include Правление/Дирекция, those are collegial)
+  major_transaction_clauses — Пункты о крупных сделках   [CLAUSE]
+        (one item per clause: "<clause_number>. <full clause text>";
+         collect from the competence of EVERY organ that has it)
+  related_party_transaction_clauses — Пункты о сделках с заинтересованностью   [CLAUSE]
+        (one item per clause: "<clause_number>. <full clause text>";
+         collect from the competence of EVERY organ that has it)
+  general_meeting_minutes_protocol — Протокол общего собрания   [CLAUSE]
+        (one line: clause number + method of certification)
+  sole_executive_body_restrictions — Уставные ограничения единоличного ИО   [CLAUSE]
+        (one item per restriction, the most specific sub-clause + its text)

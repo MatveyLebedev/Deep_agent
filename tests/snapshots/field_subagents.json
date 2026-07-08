@@ -1,0 +1,47 @@
+[
+  {
+    "name": "extract-supreme-body",
+    "description": "Extract supreme governing body (высший орган управления).",
+    "field": "supreme_governing_body",
+    "style": "name",
+    "topic": "Высший орган управления (Общее собрание участников)"
+  },
+  {
+    "name": "extract-collegial-bodies",
+    "description": "Extract collegial governing bodies (Совет директоров, Наблюдательный совет, Правление).",
+    "field": "collegial_governing_bodies",
+    "style": "name",
+    "topic": "Коллегиальные органы управления"
+  },
+  {
+    "name": "extract-sole-executive",
+    "description": "Extract sole executive bodies (Генеральный директор, Директор, Управляющий).",
+    "field": "sole_executive_bodies",
+    "style": "name",
+    "topic": "Только ЕДИНОЛИЧНЫЕ исполнительные органы (Генеральный директор, Директор, Управляющий). НЕ Правление"
+  },
+  {
+    "name": "extract-major-transactions",
+    "description": "Extract clauses about major transactions (крупные сделки).",
+    "field": "major_transaction_clauses",
+    "topic": "Крупные сделки, % от активов, пороги одобрения — собери из компетенции ВСЕХ органов (и Общего собрания, и Наблюдательного совета / Совета директоров)"
+  },
+  {
+    "name": "extract-related-party-transactions",
+    "description": "Extract clauses about related-party transactions (сделки с заинтересованностью).",
+    "field": "related_party_transaction_clauses",
+    "topic": "Сделки с заинтересованностью — собери из компетенции ВСЕХ органов (и Общего собрания, и Наблюдательного совета / Совета директоров)"
+  },
+  {
+    "name": "extract-meeting-protocol",
+    "description": "Extract general-meeting minutes certification (протокол ОСУ).",
+    "field": "general_meeting_minutes_protocol",
+    "topic": "Протокол общего собрания, способ удостоверения"
+  },
+  {
+    "name": "extract-executive-restrictions",
+    "description": "Extract charter restrictions on the sole executive body.",
+    "field": "sole_executive_body_restrictions",
+    "topic": "Уставные ограничения единоличного исполнительного органа"
+  }
+]

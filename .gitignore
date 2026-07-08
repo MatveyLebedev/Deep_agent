@@ -1,0 +1,38 @@
+# Secrets / local env
+.env
+.env.local
+.env.*.local
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.ipynb_checkpoints/
+.venv*/
+.pytest_cache/
+
+# Editor / tooling local state
+.DS_Store
+.claude/
+.cursorignore
+
+# Local documents & per-run state — NEVER commit client documents.
+# Keep the folders (Docker mounts them) but ignore their contents.
+/input/*
+!/input/.gitkeep
+/agent_init/data/*
+!/agent_init/data/.gitkeep
+/agents/*
+!/agents/.gitkeep
+
+# Generated run artifacts
+output/
+work/
+deep-agent-deploy_*.zip
+
+# Downloaded models (docling, etc.) — large, regenerable
+models/
+
+# SQLite checkpoints & retrieval caches
+*.db
+**/.embed_cache/

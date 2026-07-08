@@ -1,0 +1,33 @@
+services:
+  agent:
+    build: .
+    image: deep-agent-app:latest
+    env_file: .env
+    stdin_open: true
+    tty: true
+    working_dir: /workspace
+    command: ["--help"]
+    volumes:
+      - ./input:/workspace/input:ro
+      - ./agent_init/data:/workspace/agent_init/data:ro
+      - ./agents:/workspace/agents:rw
+      - ./output:/workspace/output:rw
+      - ./work:/workspace/work:rw
+      - ./models:/workspace/models:rw
+      - ./main.py:/workspace/main.py:ro
+      - ./tools.py:/workspace/tools.py:ro
+      - ./schemas.py:/workspace/schemas.py:ro
+      - ./training.py:/workspace/training.py:ro
+      - ./tracing.py:/workspace/tracing.py:ro
+      - ./gigachat_embeddings.py:/workspace/gigachat_embeddings.py:ro
+      - ./extraction.py:/workspace/extraction.py:ro
+      - ./field_specs.py:/workspace/field_specs.py:ro
+      - ./retrieval.py:/workspace/retrieval.py:ro
+      - ./providers.py:/workspace/providers.py:ro
+      - ./netguard.py:/workspace/netguard.py:ro
+      - ./tests:/workspace/tests:ro
+      - ./requirements-dev.txt:/workspace/requirements-dev.txt:ro
+      - hf-cache:/root/.cache
+
+volumes:
+  hf-cache:

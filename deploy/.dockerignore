@@ -1,0 +1,23 @@
+# Секреты и окружение — НЕ попадают в образ (compose читает .env в рантайме).
+.env
+.env.local
+.env.*.local
+
+# Данные/результаты/состояние — монтируются как тома, в образ не нужны.
+input/*
+output/*
+work/*
+agents/*
+certs/*
+models/*
+!**/.gitkeep
+
+# Python / ОС
+__pycache__/
+*.py[cod]
+.DS_Store
+
+# Документация и host-side SDK (в образ не нужны — SDK работает на хосте)
+README_DEPLOY.md
+SDK.py
+example.ipynb

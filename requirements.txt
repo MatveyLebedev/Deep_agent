@@ -1,0 +1,15 @@
+deepagents
+langchain>=1.0,<2.0
+langchain-core>=1.0,<2.0
+langchain-openai
+langgraph-checkpoint-sqlite
+langsmith>=0.3.0
+langfuse
+docling
+langchain-docling
+pandas
+numpy
+rank-bm25
+python-dotenv
+pydantic>=2.0
+requests

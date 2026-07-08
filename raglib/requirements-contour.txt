@@ -1,0 +1,28 @@
+# raglib в закрытом контуре — пины под пакеты, уже присутствующие в
+# окружении целевого сервиса (см. его requirements.txt).
+# Все версии — те, что стоят в контуре; raglib с ними совместим.
+#
+# Установка офлайн (raglib — из собранного колеса, зависимости — из контура):
+#   pip install --no-index --find-links wheelhouse -c requirements-contour.txt \
+#       'raglib[gigachat,langchain]'
+#
+# raglib сам подтянет numpy / rank-bm25 / faiss-cpu; этот файл лишь фиксирует
+# версии, чтобы pip не пытался их обновлять.
+
+numpy==2.3.3
+faiss-cpu==1.12.0
+rank_bm25==0.2.2
+
+# RU-нормализация BM25. pymorphy3 в контуре есть → bm25_normalizer="auto"
+# сам выберет "lemma". Для лучшего качества ("stem") добавьте snowballstemmer
+# (чистый Python, без зависимостей) и раскомментируйте строку ниже.
+pymorphy3==2.0.5
+# snowballstemmer
+
+# LLM и эмбеддинги GigaChat через LangChain (langchain-openai в контуре нет и
+# не нужен — используется GigaChat-путь).
+langchain-gigachat==0.5.0
+langchain==1.3.9
+langchain-community==0.3.30
+langgraph==1.2.6
+requests==2.33.0
