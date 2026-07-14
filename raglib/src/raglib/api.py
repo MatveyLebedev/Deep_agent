@@ -28,13 +28,16 @@ class RagIndex:
     def build(cls, inputs, index_dir, *, recognizer=None, embeddings=None,
               chunk_size: int = 1500, chunk_overlap: int = 150,
               section_embedding: str = "mean",
-              bm25_normalizer: str = "auto") -> "RagIndex":
+              bm25_normalizer: str = "auto",
+              ocr_number_repair: bool = True) -> "RagIndex":
         """Build and persist an index, then load it back (so the load path is
-        exercised on every build)."""
+        exercised on every build). ocr_number_repair=True tolerates OCR errors in
+        clause numbers (О→0, l→1, comma-for-dot); set False for strict matching."""
         root = builder.build_index(
             inputs, index_dir, recognizer=recognizer, embeddings=embeddings,
             chunk_size=chunk_size, chunk_overlap=chunk_overlap,
-            section_embedding=section_embedding, bm25_normalizer=bm25_normalizer)
+            section_embedding=section_embedding, bm25_normalizer=bm25_normalizer,
+            ocr_number_repair=ocr_number_repair)
         return cls.load(root, embeddings=embeddings)
 
     @classmethod

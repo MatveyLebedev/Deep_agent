@@ -1,10 +1,5 @@
-from raglib.agent.llm import (
-    ChatLLM,
-    LangChainChatLLM,
-    MockLLM,
-    OpenAICompatChatLLM,
-)
+from raglib.agent.llm import ChatModel, MockLLM, content_to_text
 from raglib.agent.searcher import AgenticResult, AgenticSearcher
 
-__all__ = ["ChatLLM", "LangChainChatLLM", "MockLLM", "OpenAICompatChatLLM",
+__all__ = ["ChatModel", "MockLLM", "content_to_text",
            "AgenticResult", "AgenticSearcher"]

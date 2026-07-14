@@ -16,7 +16,7 @@ import re
 from dataclasses import dataclass, field
 
 from raglib.agent import prompts
-from raglib.agent.llm import ChatLLM
+from raglib.agent.llm import ChatModel, content_to_text
 from raglib.models import SearchHit
 from raglib.search.engine import SearchEngine
 from raglib.search.toc import find_section
@@ -35,7 +35,7 @@ class AgenticResult:
 
 
 class AgenticSearcher:
-    def __init__(self, engine: SearchEngine, llm: ChatLLM | None, *,
+    def __init__(self, engine: SearchEngine, llm: ChatModel | None, *,
                  top_k: int = 8, max_iters: int = 3, max_llm_calls: int = 8,
                  per_iter_candidates: int = 30, reflect_batch: int = 10,
                  snippet_chars: int = 800):
@@ -64,10 +64,11 @@ class AgenticSearcher:
             return None
         state.llm_calls += 1
         try:
-            raw = self.llm.complete([  # type: ignore[union-attr]
+            result = self.llm.invoke([  # type: ignore[union-attr]
                 {"role": "system", "content": prompts.SYSTEM},
                 {"role": "user", "content": user_text},
             ])
+            raw = content_to_text(getattr(result, "content", result))
         except Exception as e:
             state.trace.append({"step": purpose, "error": f"llm call failed: {e}"})
             return None
