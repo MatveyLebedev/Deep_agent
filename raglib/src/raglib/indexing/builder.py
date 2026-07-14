@@ -49,6 +49,7 @@ def build_index(
     section_embedding: str = "mean",       # "mean" | "title_lead"
     section_lead_chars: int = 400,
     bm25_normalizer: str = "auto",         # "auto" | "none" | "stem" | "lemma"
+    ocr_number_repair: bool = True,        # tolerate OCR errors in clause numbers
 ) -> Path:
     recognizer = recognizer or MockRecognizer()
     files = expand_inputs(inputs)
@@ -86,7 +87,7 @@ def build_index(
                        sections=build_sections(doc_id, md_text))
         documents[doc_id] = doc
         sections.extend(doc.sections)
-        for cl in segment_clauses(doc):
+        for cl in segment_clauses(doc, ocr_repair=ocr_number_repair):
             cl.clause_id = len(clauses)
             clauses.append(cl)
             for (a, b) in window_spans(cl.text, chunk_size, chunk_overlap):
@@ -152,6 +153,7 @@ def build_index(
                       for d in documents.values()],
         "chunking": {"size": chunk_size, "overlap": chunk_overlap},
         "bm25": {"normalizer": bm25_normalizer},
+        "ocr_number_repair": ocr_number_repair,
         "embeddings": emb_meta,
         "counts": {"documents": len(documents), "sections": len(sections),
                    "clauses": len(clauses), "chunks": len(chunks)},

@@ -10,22 +10,52 @@ import re
 from typing import Iterator
 
 from raglib.models import Document, Section
+from raglib.parsing.ocr import OCR_PART, repair_number
 
 HEADING_RE = re.compile(r"^\s{0,3}(#{1,6})\s+(\S.*)$")
-_WORD_KEY_RE = re.compile(r"\s*(?:статья|глава|раздел)\s+(\d+)", re.IGNORECASE)
-_NUM_KEY_RE = re.compile(r"\s*(\d+(?:\s*\.\s*\d+)*)")
+# number parts are OCR-tolerant (О→0, l→1, …) but each requires a real digit
+# (OCR_PART), so a look-alike-leading word ('Общие', 'Зона') or a Roman numeral
+# ('II') never yields a bogus key; repair_number canonicalizes the match.
+_WORD_KEY_RE = re.compile(rf"\s*(?:статья|глава|раздел)\s+({OCR_PART})", re.IGNORECASE)
+_NUM_KEY_RE = re.compile(rf"\s*({OCR_PART}(?:\s*[.,]\s*{OCR_PART})*)")
+# Heading whose body is a table of contents (a digest of other sections), not
+# content. Whole-title match so "Статья 5. Содержание деятельности" is unaffected.
+_TOC_TITLE_RE = re.compile(
+    r"^(?:содержание|оглавление|contents|table\s+of\s+contents)\b[\s:.]*$",
+    re.IGNORECASE)
+
+
+def is_toc_title(title: str) -> bool:
+    """True if a heading titles a table of contents (СОДЕРЖАНИЕ / ОГЛАВЛЕНИЕ /
+    CONTENTS). Such a section is navigation, not searchable content — it stays in
+    the section tree but is not emitted as a clause (see segment_clauses)."""
+    return bool(_TOC_TITLE_RE.match(title.strip()))
+
+
+# Unnumbered sections (СОДЕРЖАНИЕ, «Назначение», a titled preamble, …) get a
+# stable per-document key with this prefix, so they are addressable in
+# read_section / find_section / filters and carry provenance on hits, exactly
+# like numbered ones. It never collides with a real numbering key —
+# section_key_of only ever returns dotted digits or "".
+SYNTHETIC_KEY_PREFIX = "§"
+
+
+def is_numbered_key(key: str) -> bool:
+    """True for a real numbering key ('12.1'); False for '' and for the
+    synthetic key of an unnumbered section ('§3')."""
+    return bool(key) and not key.startswith(SYNTHETIC_KEY_PREFIX)
 
 
 def section_key_of(title: str) -> str:
     """Normalized section key from a heading title.
     'Статья 12 . НАБЛЮДАТЕЛЬНЫЙ СОВЕТ' -> '12'; '12.1.4. Решение…' -> '12.1.4';
-    'СОДЕРЖАНИЕ' -> '' (no number)."""
+    'Статья 1О' -> '10' (OCR); 'СОДЕРЖАНИЕ' -> '' (no number)."""
     m = _WORD_KEY_RE.match(title)
     if m:
-        return m.group(1)
+        return repair_number(m.group(1))
     m = _NUM_KEY_RE.match(title)
     if m:
-        return re.sub(r"\s+", "", m.group(1)).rstrip(".")
+        return repair_number(m.group(1))
     return ""
 
 
@@ -75,6 +105,15 @@ def build_sections(doc_id: str, md_text: str) -> list[Section]:
                     s.parent_key = cand
                     by_key[cand].children.append(s.key)
                     break
+
+    # give every remaining unnumbered section a stable synthetic key, so it is
+    # addressable and provides provenance just like a numbered one. Done after
+    # numbering-based parent linking (synthetic keys carry no hierarchy).
+    unnumbered = 0
+    for s in sections:
+        if not s.key:
+            unnumbered += 1
+            s.key = f"{SYNTHETIC_KEY_PREFIX}{unnumbered}"
     return sections
 
 

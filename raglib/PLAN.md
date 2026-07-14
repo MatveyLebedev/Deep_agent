@@ -115,11 +115,10 @@ AgenticSearcher (опционально, поверх SearchEngine): промт 
 raglib/
 ├── PLAN.md                     ← этот файл
 ├── pyproject.toml              # PEP 621; deps: numpy, rank-bm25, faiss-cpu;
-│                               # extras: [llm]→requests (GigaChat/OpenAI-compat/агент),
-│                               #         [langchain], [dev]
+│                               # extras: [stem], [ru], [gigachat], [langchain], [dev]
 ├── README.md                   # примеры использования
 ├── src/raglib/
-│   ├── __init__.py             # публичный API: RagIndex, SearchHit, реэкспорт адаптеров
+│   ├── __init__.py             # публичный API: RagIndex, SearchHit, dataclasses
 │   ├── models.py               # dataclasses: Document, Section, Clause, Chunk, SearchHit
 │   ├── recognition/
 │   │   ├── base.py             # protocol TextRecognizer.recognize(Path) -> str (markdown)
@@ -129,8 +128,7 @@ raglib/
 │   │   └── clauses.py          # сегментация на пункты + окна-юниты внутри длинных пунктов
 │   ├── embeddings/
 │   │   ├── base.py             # protocol: embed_documents(list[str]), embed_query(str)
-│   │   ├── gigachat.py         # перенос gigachat_embeddings.py (extra [llm])
-│   │   ├── openai_compat.py    # любой OpenAI-совместимый /embeddings endpoint (extra [llm])
+│   │   │                       # (совпадает с LangChain — эмбеддер передаётся напрямую)
 │   │   └── hashing.py          # HashingEmbeddings — детерминированный офлайн-мок для тестов
 │   ├── indexing/
 │   │   ├── builder.py          # IndexBuilder: файлы → recognizer → parser → пункты → индексы
@@ -142,7 +140,7 @@ raglib/
 │   │   │                       # агрегация юнитов → пункты, фильтры
 │   │   └── toc.py              # outline(), read_section(), find_section()
 │   ├── agent/
-│   │   ├── llm.py              # protocol ChatLLM (.complete) + OpenAICompatChatLLM + MockLLM
+│   │   ├── llm.py              # protocol ChatModel (.invoke, LangChain) + content_to_text + MockLLM
 │   │   ├── prompts.py          # короткие RU-промты: PLAN / REFLECT / REFINE
 │   │   └── searcher.py         # AgenticSearcher: цикл, бюджеты, grade-кеш, fallback, trace
 │   └── integrations/
@@ -157,14 +155,14 @@ raglib/
 ```python
 from raglib import RagIndex
 from raglib.recognition import MockRecognizer
-from raglib.embeddings import GigaChatEmbeddings   # или OpenAICompatEmbeddings, или None
+from langchain_gigachat import GigaChatEmbeddings   # любой LangChain-эмбеддер, или None
 
 # 1) Построение индекса из файлов (на тестах — .md, как отдаёт целевая система)
 index = RagIndex.build(
     inputs=["docs/charter.md", "docs/"],          # файл, список, директория
     index_dir="./charter_index",
     recognizer=MockRecognizer(),                   # шов для реальной системы распознавания
-    embeddings=GigaChatEmbeddings.from_env(),      # None → BM25-only индекс
+    embeddings=GigaChatEmbeddings(...),            # объект LangChain; None → BM25-only индекс
     chunk_size=1500, chunk_overlap=150,            # параметры ВНУТРЕННИХ окон
 )
 
@@ -188,9 +186,8 @@ sec = index.find_section("кто одобряет крупные сделки",
 text = index.read_section("charter", "12.1")       # раздел целиком, с подразделами
 
 # 5) Агентский поиск: промт → цикл с рефлексией (см. §6)
-from raglib.agent import OpenAICompatChatLLM
-llm = OpenAICompatChatLLM(base_url="https://gw.corp/v1", api_key="...",
-                          model="minimax-m3")
+from langchain_gigachat import GigaChat     # любая LangChain chat-модель (.invoke)
+llm = GigaChat(credentials="...", scope="GIGACHAT_API_CORP", verify_ssl_certs=False)
 res = index.agentic_search(
     "Какие сделки требуют одобрения наблюдательного совета и с какими порогами?",
     llm=llm, top_k=8, max_iters=3,
@@ -364,11 +361,12 @@ trace = полный журнал шагов, degraded = False
   Агентский поиск не добавляет новых способов упасть.
 - **`llm=None` → чистый hybrid**: удобно для A/B-сравнения качества с
   рефлексией и без на одних и тех же запросах.
-- **LLM — протокол, не зависимость**: `ChatLLM.complete(messages) -> str`
-  (один метод). Адаптеры: `OpenAICompatChatLLM` на requests (корпоративный
-  шлюз, minimax), `MockLLM` со сценарием ответов для тестов. Ядро по-прежнему
-  без langchain; deepagents-обёртка может передать свою модель через тот же
-  протокол.
+- **LLM — объект LangChain напрямую, не зависимость**: агентский цикл зовёт
+  `llm.invoke(messages) -> AIMessage` (структурный протокол `ChatModel`) и сам
+  разворачивает контент в текст (`content_to_text`, в т.ч. content-блоки).
+  Никаких raglib-адаптеров: передавайте `langchain_gigachat.GigaChat`,
+  `ChatOpenAI` или модель из своего deepagents-стека как есть; `MockLLM` со
+  сценарием ответов — для тестов. Ядро по-прежнему без langchain в зависимостях.
 - **Трасса обязательна**: `res.trace` фиксирует запросы, инструменты,
   кандидатов, вердикты и решения каждого шага — это и отладка качества, и
   материал для приёмки/аудита в контуре.
@@ -386,8 +384,9 @@ trace = полный журнал шагов, degraded = False
 ## 7. Ключевые проектные решения
 
 1. **Зависимости — минимальные**: `numpy`, `rank-bm25`, `faiss-cpu`;
-   `requests` только в extra `[llm]` (адаптеры GigaChat / OpenAI-compatible /
-   агентский LLM); `langchain` только в extra `[langchain]`. Никакого
+   LLM и эмбеддинги — готовые объекты LangChain, которые передаёт вызывающий код
+   (провайдер ставится отдельно: `[gigachat]` и т.п.); `langchain-core` только в
+   extra `[langchain]` (для `@tool`-обёрток). Никакого
    docling/langchain в ядре — библиотека не парсит PDF сама (это делает
    целевая система), поэтому ядро ставится офлайн из wheels. Модели данных —
    stdlib `dataclasses`, не pydantic.
@@ -438,7 +437,7 @@ trace = полный журнал шагов, degraded = False
 ## 8. Этапы реализации
 
 ### Этап 0 — каркас (≈0.5 дня)
-- [ ] `pyproject.toml` (src-layout, PEP 621, extras `[llm]`, `[langchain]`, `[dev]`)
+- [ ] `pyproject.toml` (src-layout, PEP 621, extras `[gigachat]`, `[langchain]`, `[dev]`)
 - [ ] pytest + ruff, пустые модули по структуре из п. 3
 - [ ] Тестовые фикстуры: синтетический «устав» (`tests/fixtures/charter.md` с
       нумерацией `Статья N` / `N.M.K` и в заголовках, и в абзацах; оглавлением;
@@ -509,8 +508,8 @@ trace = полный журнал шагов, degraded = False
   сегменту исходника); tree-стратегия находит тот же пункт, что и flat.
 
 ### Этап 6 — агентский поиск (≈1.5 дня)
-- [ ] `agent/llm.py`: протокол `ChatLLM` + `OpenAICompatChatLLM` (requests) +
-      `MockLLM` (сценарий ответов для тестов)
+- [ ] `agent/llm.py`: структурный протокол `ChatModel` (.invoke, LangChain) +
+      `content_to_text` + `MockLLM` (сценарий ответов для тестов)
 - [ ] `agent/prompts.py`: короткие RU-промты PLAN / REFLECT / REFINE +
       толерантный JSON-парсер (перенос приёмов из extraction.py)
 - [ ] `agent/searcher.py`: цикл §6 — план, retrieve всеми инструментами,
@@ -563,8 +562,10 @@ trace = полный журнал шагов, degraded = False
 - **Integration:** build → save → load → все методы поиска, обе стратегии
   (flat/tree); только офлайн (`HashingEmbeddings`, `FixtureRecognizer`,
   `MockLLM`) — весь пайплайн покрывается без сети, никакой сети в CI.
-- **Контрактные:** `TextRecognizer` (мок ↔ будущий адаптер), `Embeddings` и
-  `ChatLLM` (адаптеры против замоканных HTTP-ответов с реальными схемами).
+- **Контрактные:** `TextRecognizer` (мок ↔ будущий адаптер); `EmbeddingsLike`
+  и `ChatModel` — проверяем, что duck-typed объект LangChain (`.embed_*`,
+  `.invoke`) ведёт сборку и агентский цикл без адаптеров (`HashingEmbeddings`,
+  `MockLLM`).
 - Тестовые данные — только синтетические фикстуры; реальные уставы из
   `input/` в пакет и тесты не тащим (конфиденциальность).
 

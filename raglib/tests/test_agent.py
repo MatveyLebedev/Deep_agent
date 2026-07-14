@@ -4,7 +4,8 @@ import re
 
 import pytest
 
-from raglib.agent import LangChainChatLLM, MockLLM
+from raglib.agent import MockLLM
+from raglib.agent.llm import content_to_text
 from raglib.agent.prompts import parse_json, str_list
 
 # parses the candidate listing rendered by AgenticSearcher._reflect
@@ -90,7 +91,7 @@ def test_unparseable_llm_degrades_to_plain_search(bm25_index):
 
 def test_llm_exception_degrades_gracefully(bm25_index):
     class BoomLLM:
-        def complete(self, messages):
+        def invoke(self, messages):
             raise TimeoutError("corporate gateway timeout")
 
     res = bm25_index.agentic_search("пороги сделок", llm=BoomLLM(), top_k=5)
@@ -116,63 +117,31 @@ def test_llm_call_budget_is_enforced(bm25_index):
     assert any("budget" in str(step) for step in res.trace)
 
 
-class _FakeAIMessage:
-    def __init__(self, content):
-        self.content = content
-
-
-class _FakeLangChainModel:
-    """Mimics a LangChain chat model: .invoke(messages) -> AIMessage whose
-    .content is a string, or a list of content blocks when as_blocks=True.
-    Each scripted response is a str or a callable(messages)->str (so REFLECT
-    can depend on the candidate listing it receives), like MockLLM."""
-    def __init__(self, responses, as_blocks=False):
-        self._responses = list(responses)
-        self.model_name = "fake/langchain-model"
-        self.received = []
-        self._blocks = as_blocks
-
-    def invoke(self, messages):
-        self.received.append(messages)
-        resp = self._responses.pop(0)
-        text = resp(messages) if callable(resp) else resp
-        return _FakeAIMessage([{"type": "text", "text": text}] if self._blocks
-                              else text)
-
-
-def test_langchain_adapter_rejects_non_model():
-    with pytest.raises(TypeError, match="invoke"):
-        LangChainChatLLM(object())
-
-
-def test_from_openai_builds_chatopenai():
-    pytest.importorskip("langchain_openai")
-    llm = LangChainChatLLM.from_openai(model="gpt-x", base_url="https://gw.corp/v1",
-                                       api_key="sk-test", temperature=0)
-    from langchain_openai import ChatOpenAI
-    assert isinstance(llm._model, ChatOpenAI)
-    assert llm.model_name == "gpt-x"
+def test_content_to_text_flattens_blocks():
+    assert content_to_text("abc") == "abc"
+    # some LangChain models return a list of content blocks instead of a string
+    assert content_to_text(
+        [{"type": "text", "text": "abc"}, {"text": "de"}]) == "abcde"
+    assert content_to_text(None) == ""
 
 
 @pytest.mark.parametrize("as_blocks", [False, True])
-def test_langchain_adapter_drives_agentic_search(bm25_index, as_blocks):
+def test_langchain_model_drives_agentic_search(bm25_index, as_blocks):
+    """A LangChain chat model is used directly (no adapter): raglib calls
+    .invoke() with OpenAI-style dicts and flattens the AIMessage content —
+    whether it comes back as a string or as content blocks."""
     plan = json.dumps({"queries": ["крупной сделки", "балансовой стоимости"],
                        "aspects": ["пороги крупных сделок"]}, ensure_ascii=False)
-    model = _FakeLangChainModel(
-        [plan, reflect_by(lambda num, snip: "relevant")], as_blocks=as_blocks)
-    llm = LangChainChatLLM(model)
-    assert llm.model_name == "fake/langchain-model"
+    llm = MockLLM([plan, reflect_by(lambda num, snip: "relevant")],
+                  as_blocks=as_blocks)
 
     res = bm25_index.agentic_search("Какие пороги одобрения крупных сделок?",
                                     llm=llm, top_k=6)
     assert not res.degraded and res.llm_calls == 2
     assert {"13.1", "13.2"} <= {h.clause_number for h in res.hits}
     assert all(h.method == "agentic" for h in res.hits)
-    # the adapter passed raglib's OpenAI-style dict messages straight through
-    assert model.received[0][0]["role"] == "system"
-    # content-block responses (as_blocks=True) are flattened to text correctly
-    assert LangChainChatLLM._content_to_text(
-        [{"type": "text", "text": "abc"}, {"text": "de"}]) == "abcde"
+    # raglib passes OpenAI-style dict messages straight into .invoke()
+    assert llm.calls[0][0]["role"] == "system"
 
 
 def test_agentic_hits_keep_output_invariant(bm25_index):

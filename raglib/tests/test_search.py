@@ -106,6 +106,11 @@ def test_filters(vec_index):
     hits = vec_index.search("доступ", method="bm25", doc="policy")
     assert hits and all(h.doc_id == "policy" for h in hits)
     assert all(h.clause_number == "" for h in hits)  # unnumbered document
+    # ...but an unnumbered clause is not anonymous: its titled (unnumbered)
+    # section still gives provenance and a stable locator
+    assert all(h.breadcrumb and h.locator for h in hits)
+    отзыв = next(h for h in hits if "отзыв" in h.text.lower())
+    assert отзыв.breadcrumb == "Отзыв доступа" and отзыв.locator == "Отзыв доступа"
 
 
 def test_grep(vec_index):

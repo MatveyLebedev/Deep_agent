@@ -4,7 +4,13 @@ from raglib.parsing.clauses import (
     segment_clauses,
     window_spans,
 )
-from raglib.parsing.markdown import build_sections, is_descendant, section_key_of
+from raglib.parsing.markdown import (
+    build_sections,
+    is_descendant,
+    is_numbered_key,
+    is_toc_title,
+    section_key_of,
+)
 
 
 def make_doc(text: str, doc_id: str = "doc") -> Document:
@@ -38,9 +44,10 @@ def test_section_tree_on_charter(charter_text):
     assert "12.1" in by_key["12"].children
     # numbered scope: Статья 12 ends where Статья 13 starts
     assert by_key["12"].line_end == by_key["13"].line_start
-    # unnumbered heading (СОДЕРЖАНИЕ) closes at the very next heading
+    # unnumbered heading (СОДЕРЖАНИЕ) closes at the very next heading and gets a
+    # stable synthetic key (addressable like a numbered section)
     toc = next(s for s in sections if "СОДЕРЖАНИЕ" in s.title)
-    assert toc.key == "" and toc.line_end > toc.line_start
+    assert not is_numbered_key(toc.key) and toc.key and toc.line_end > toc.line_start
 
 
 def test_clause_segmentation_on_charter(charter_text):
@@ -137,11 +144,11 @@ def test_inline_table_clauses_are_split_out():
 
 
 def test_inline_split_guards():
-    # СОДЕРЖАНИЕ-style digest (unnumbered clause) with table markup: no split
-    toc_like = ("## СОДЕРЖАНИЕ\n\n"
-                "| Статья 6. УСТАВНЫЙ КАПИТАЛ  6  6.1. Размер уставного "
-                "капитала.  6  6.2. Объявленные акции  7 |\n")
-    clauses = segment_clauses(make_doc(toc_like))
+    # unnumbered digest (here an appendix) with table markup: no split
+    digest = ("## ПРИЛОЖЕНИЕ\n\n"
+              "| Статья 6. УСТАВНЫЙ КАПИТАЛ  6  6.1. Размер уставного "
+              "капитала.  6  6.2. Объявленные акции  7 |\n")
+    clauses = segment_clauses(make_doc(digest))
     assert [c.number for c in clauses] == [""]
 
     # unrelated numbering inside a numbered clause's table: no split either
@@ -173,6 +180,48 @@ def test_unnumbered_document_yields_whole_blocks():
     clauses = segment_clauses(make_doc(text))
     assert len(clauses) == 1
     assert clauses[0].number == "" and clauses[0].text == text
+
+
+def test_unnumbered_sections_get_synthetic_keys():
+    """Titled sections without a number (a preamble, «Назначение», «Отзыв…»)
+    become first-class: each gets a distinct synthetic key, and a clause under
+    one keeps number="" but records that key as section_key for provenance."""
+    text = ("# Регламент доступа\n\n"
+            "Действует с даты утверждения.\n\n"
+            "## Назначение\n\n"
+            "Определяет порядок предоставления доступа.\n\n"
+            "## Отзыв доступа\n\n"
+            "Доступ отзывается в день увольнения.\n")
+    doc = make_doc(text)
+    unnum = [s for s in doc.sections if not is_numbered_key(section_key_of(s.title))]
+    keys = [s.key for s in unnum]
+    assert all(k and not is_numbered_key(k) for k in keys)  # synthetic
+    assert len(keys) == len(set(keys)) == 3                 # distinct per section
+
+    clauses = segment_clauses(doc)
+    отзыв = next(c for c in clauses if "отзывается" in c.text)
+    assert отзыв.number == ""                               # no real number
+    assert отзыв.section_key and not is_numbered_key(отзыв.section_key)
+
+
+def test_table_of_contents_is_not_a_clause():
+    """A table of contents matches almost any query (it lists every article
+    title), so it must not be a retrieval unit — but it stays in the section
+    tree for navigation. A genuinely unnumbered preamble is still a clause."""
+    text = ("# УСТАВ ООО «Ромашка»\n\n"
+            "## СОДЕРЖАНИЕ\n\n"
+            "- Статья 1. Общие положения\n"
+            "- Статья 13. Крупные сделки\n\n"
+            "## Статья 13. КРУПНЫЕ СДЕЛКИ\n\n"
+            "13.1. Крупной сделкой признаётся сделка или несколько сделок.\n")
+    doc = make_doc(text)
+    clauses = segment_clauses(doc)
+    numbers = [c.number for c in clauses]
+    assert not any("СОДЕРЖАНИЕ" in c.text for c in clauses)  # TOC digest dropped
+    assert "13" in numbers and "13.1" in numbers             # real clauses kept
+    assert any(c.number == "" and "УСТАВ" in c.text for c in clauses)  # preamble kept
+    # the СОДЕРЖАНИЕ section itself survives for toc()/find_section navigation
+    assert any(is_toc_title(s.title) for s in doc.sections)
 
 
 def test_clauses_reconstruct_section(charter_text):

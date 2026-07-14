@@ -98,6 +98,25 @@ def test_navigation_driven_search(vec_index):
     assert "заявки" in vec_index.read_section(ref.doc_id, ref.title)
 
 
+def test_unnumbered_sections_are_navigable(vec_index):
+    """A section with no number is still listed with an addressable key, found,
+    and read — both by its synthetic key and by its title."""
+    entries = vec_index.toc_entries(doc="policy")
+    отзыв = next(e for e in entries if e.title == "Отзыв доступа")
+    assert отзыв.key and отзыв.key not in ("",)          # has an addressable key
+
+    # the outline tags it like a numbered section, so the key is copy-pasteable
+    assert f"[{отзыв.key}] Отзыв доступа" in vec_index.toc(doc="policy")
+
+    # find_section returns that key; read_section accepts it AND the title
+    ref = vec_index.find_section("отзыв доступа")[0]
+    assert ref.key == отзыв.key
+    by_key = vec_index.read_section("policy", ref.key)
+    by_title = vec_index.read_section("policy", "Отзыв доступа")
+    assert by_key == by_title
+    assert "увольнения" in by_key
+
+
 def test_toc_entries_unknown_doc_raises(vec_index):
     with pytest.raises(KeyError, match="missing"):
         vec_index.toc_entries(doc="missing")

@@ -20,7 +20,8 @@ from __future__ import annotations
 import re
 
 from raglib.models import Clause, Document, Section
-from raglib.parsing.markdown import is_descendant
+from raglib.parsing.markdown import is_descendant, is_numbered_key, is_toc_title
+from raglib.parsing.ocr import OCR_PART, repair_number
 
 # Dotted number with 2..5 parts followed by '.' or ')'. Recognition artifacts
 # tolerated (all seen in real docling output):
@@ -50,16 +51,38 @@ _TABLE_ROW_CLAUSE_RE = re.compile(
 )
 
 
-def match_clause_paragraph(line: str) -> re.Match | None:
-    """Match a body line that OPENS a new clause; group(1) is the number
-    (may contain spaces around dots — normalize with clause_number_of)."""
-    return (CLAUSE_PARA_RE.match(line) or _BULLET_CLAUSE_RE.match(line)
-            or _TABLE_ROW_CLAUSE_RE.match(line))
+# OCR fallback: same shape as CLAUSE_PARA_RE / the bullet form, but each number
+# part tolerates digit look-alikes (О→0, l→1, З→3, б→6, S→5) and separators may be
+# a comma-for-dot. Every part still needs a REAL digit (OCR_PART), so a word never
+# opens a clause; match_clause_paragraph then rejects OCR dates via repair_number.
+_OCR_CLAUSE_RE = re.compile(
+    r"^\s{0,3}(?:[-*]\s+)?(?:\*{1,2}\s*)?"
+    rf"({OCR_PART}(?:\s*[.,]\s*{OCR_PART}){{1,4}})"
+    r"\s*[.,)](?:\*{1,2})?(?:\s+\S|(?=[^\W\d_]))"
+)
+_OCR_BULLET_RE = re.compile(
+    rf"^\s{{0,3}}[-*]\s+({OCR_PART}(?:[.,]{OCR_PART}){{1,4}})\s+\S"
+)
+
+
+def match_clause_paragraph(line: str, *, ocr: bool = True) -> re.Match | None:
+    """Match a body line that OPENS a new clause; group(1) is the raw number
+    (normalize with clause_number_of). With ocr=True, numbers written with OCR
+    digit look-alikes / comma separators are matched as a fallback (but a number
+    that only repairs to a date/amount is rejected, like the strict path)."""
+    m = (CLAUSE_PARA_RE.match(line) or _BULLET_CLAUSE_RE.match(line)
+         or _TABLE_ROW_CLAUSE_RE.match(line))
+    if m is not None or not ocr:
+        return m
+    m = _OCR_CLAUSE_RE.match(line) or _OCR_BULLET_RE.match(line)
+    return m if (m is not None and repair_number(m.group(1))) else None
 
 
 def clause_number_of(match: re.Match) -> str:
-    """Normalized clause number from a match ('7 . 2' -> '7.2')."""
-    return re.sub(r"\s+", "", match.group(1))
+    """Canonical clause number from a match: strips spaces AND repairs OCR
+    look-alikes / comma separators ('7 . 2' -> '7.2', '1О,2' -> '10.2').
+    Returns '' if it does not resolve to a real number (e.g. an OCR date)."""
+    return repair_number(match.group(1))
 
 
 # Recognition sometimes flattens a whole table into a few giant single-line
@@ -136,13 +159,23 @@ def _innermost_section(sections: list[Section], line: int) -> Section | None:
     return best
 
 
-def segment_clauses(doc: Document) -> list[Clause]:
+def segment_clauses(doc: Document, *, ocr_repair: bool = True) -> list[Clause]:
     """Split a document into whole clauses. clause_id is left as -1;
-    the index builder assigns global ids."""
+    the index builder assigns global ids. ocr_repair=True also detects clause
+    numbers written with OCR digit look-alikes / comma separators."""
     md = doc.md_text
     lines = md.split("\n")
     offsets = _line_offsets(md)
     heading_lines = {s.line_start for s in doc.sections}
+    # A table of contents is a digest of other sections, not content: keep its
+    # Section (navigation via toc()/find_section) but never emit it as a
+    # searchable clause — otherwise it matches almost every query (it lists all
+    # article titles) and returns with an empty clause number.
+    toc_ranges = [(s.line_start, s.line_end) for s in doc.sections
+                  if is_toc_title(s.title)]
+
+    def _in_toc(line: int) -> bool:
+        return any(a <= line < b for a, b in toc_ranges)
 
     # boundaries: (line_index, number, section_key)
     boundaries: list[tuple[int, str, str]] = []
@@ -151,12 +184,14 @@ def segment_clauses(doc: Document) -> list[Clause]:
     for i, ln in enumerate(lines):
         if i in heading_lines:
             continue
-        m = match_clause_paragraph(ln)
+        m = match_clause_paragraph(ln, ocr=ocr_repair)
         if not m:
             continue
         sec = _innermost_section(doc.sections, i)
         sk = sec.key if sec else ""
         num = clause_number_of(m)
+        if not num:
+            continue  # OCR match that didn't resolve to a real number (e.g. a date)
         # OCR merge ("- 9. 21.2. текст"): a spaced number inconsistent with the
         # section resolves to its section-consistent suffix ("21.2")
         if re.search(r"\s", m.group(1)) and not _consistent_with_section(num, sk):
@@ -178,6 +213,8 @@ def segment_clauses(doc: Document) -> list[Clause]:
 
     clauses: list[Clause] = []
     for bi, (start_line, number, section_key) in enumerate(boundaries):
+        if _in_toc(start_line):
+            continue  # table-of-contents digest: not a retrieval unit
         end_line = boundaries[bi + 1][0] if bi + 1 < len(boundaries) else len(lines)
         a = offsets[start_line]
         b = offsets[end_line] if end_line < len(offsets) else len(md)
@@ -188,8 +225,13 @@ def segment_clauses(doc: Document) -> list[Clause]:
         if a2 >= b2:
             continue  # empty block (e.g. consecutive headings)
         text = md[a2:b2]
+        # a section-head clause takes the section's NUMBER; the synthetic key of
+        # an unnumbered section ('§3') is not a real number, so such a clause
+        # stays number="" while keeping section_key for provenance/navigation.
+        num = number if is_numbered_key(number) else ""
         clauses.append(Clause(
-            clause_id=-1, doc_id=doc.doc_id, number=number or section_key,
+            clause_id=-1, doc_id=doc.doc_id,
+            number=num or (section_key if is_numbered_key(section_key) else ""),
             section_key=section_key, span=(a2, b2), text=text,
         ))
 

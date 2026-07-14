@@ -1,138 +1,74 @@
-"""LLM seam for agentic search: a one-method protocol, no langchain in core.
+"""LLM seam for agentic search.
 
-``OpenAICompatChatLLM`` talks to any OpenAI-compatible /chat/completions
-gateway (the corporate one in the target contour). ``MockLLM`` replays a
-scripted sequence of responses for offline tests.
+raglib drives agentic search through a LangChain chat model **directly**: any
+object exposing ``.invoke(messages) -> AIMessage`` works —
+``langchain_gigachat.GigaChat`` in the contour, ``langchain_openai.ChatOpenAI``,
+or the custom subclass your stack already uses. Build the model and pass it
+into ``RagIndex.agentic_search(llm=...)``; there is no adapter to construct.
+LangChain chat models accept OpenAI-style ``{"role", "content"}`` dicts, which
+is exactly what raglib sends.
+
+``MockLLM`` is a scripted stand-in with the same ``.invoke`` contract for
+offline tests.
 """
 from __future__ import annotations
 
-from typing import Callable, List, Optional, Protocol, Union, runtime_checkable
+from typing import Any, Callable, List, Protocol, Union, runtime_checkable
 
-try:
-    import requests
-except ImportError:  # pragma: no cover
-    requests = None  # type: ignore[assignment]
-
-Message = dict  # {"role": "...", "content": "..."}
+Message = dict  # OpenAI-style {"role": "...", "content": "..."}; accepted by .invoke
 
 
 @runtime_checkable
-class ChatLLM(Protocol):
-    def complete(self, messages: List[Message]) -> str:
-        """One chat completion; returns the assistant message text."""
-        ...
+class ChatModel(Protocol):
+    """Structural type of a LangChain chat model, as far as raglib uses it."""
+
+    def invoke(self, messages: List[Message]) -> Any: ...
 
 
-class OpenAICompatChatLLM:
-    def __init__(self, *, base_url: str, api_key: str, model: str,
-                 temperature: float = 0.0, max_tokens: int = 2048,
-                 timeout: float = 120.0, extra_headers: dict | None = None):
-        if requests is None:
-            raise RuntimeError(
-                "OpenAICompatChatLLM requires 'requests': pip install raglib[llm]")
-        if not base_url:
-            raise ValueError("base_url is required (e.g. https://gateway.corp/v1)")
-        self._base_url = base_url.rstrip("/")
-        self.model_name = model
-        self._temperature = temperature
-        self._max_tokens = max_tokens
-        self._timeout = timeout
-        self._headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-            **(extra_headers or {}),
-        }
-        self._session = requests.Session()
+def content_to_text(content: Any) -> str:
+    """Flatten a LangChain message ``.content`` to plain text.
 
-    def complete(self, messages: List[Message]) -> str:
-        resp = self._session.post(
-            f"{self._base_url}/chat/completions",
-            headers=self._headers,
-            json={"model": self.model_name, "messages": messages,
-                  "temperature": self._temperature, "max_tokens": self._max_tokens},
-            timeout=self._timeout,
-        )
-        resp.raise_for_status()
-        message = resp.json()["choices"][0]["message"]
-        return message.get("content") or ""
+    Most models return a string; some return a list of content blocks
+    (``[{"type": "text", "text": ...}, ...]``) — join their text parts."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):  # some models return content blocks
+        parts = []
+        for block in content:
+            if isinstance(block, dict):
+                parts.append(str(block.get("text", "")))
+            else:
+                parts.append(str(block))
+        return "".join(parts)
+    return str(content or "")
 
 
-class LangChainChatLLM:
-    """Adapt any LangChain chat model to raglib's ChatLLM protocol.
+class _AIMessage:
+    """Minimal AIMessage stand-in: just the ``.content`` attribute raglib reads."""
 
-    Wraps a model exposing ``.invoke(messages) -> message`` (e.g.
-    ``langchain_openai.ChatOpenAI``, or the custom ChatOpenAI subclass the
-    Deep agent uses) so the SAME model that drives your LangChain / deepagents
-    stack also drives agentic search. Duck-typed — importing raglib does not
-    pull in langchain; you pass an already-built model in.
-
-    Embeddings need no adapter: raglib's embeddings protocol
-    (embed_documents / embed_query) is already satisfied by any LangChain
-    embeddings object, so pass e.g. GigaChatEmbeddings / OpenAIEmbeddings
-    straight into RagIndex.build(embeddings=...).
-    """
-
-    def __init__(self, model):
-        if not hasattr(model, "invoke"):
-            raise TypeError(
-                "LangChainChatLLM expects a LangChain chat model with .invoke() "
-                "(e.g. langchain_openai.ChatOpenAI(...)); got "
-                f"{type(model).__name__}")
-        self._model = model
-        self.model_name = (getattr(model, "model_name", None)
-                           or getattr(model, "model", None)
-                           or type(model).__name__)
-
-    @classmethod
-    def from_openai(cls, *, model: str, base_url: Optional[str] = None,
-                    api_key: Optional[str] = None, temperature: float = 0.0,
-                    max_tokens: int = 2048, timeout: float = 180.0,
-                    **kwargs) -> "LangChainChatLLM":
-        """Build from the LangChain OpenAI adapter (``langchain_openai.ChatOpenAI``)
-        in one call. Works against any OpenAI-compatible gateway via base_url
-        (corporate endpoint, OpenRouter, vLLM). Extra kwargs pass through to
-        ChatOpenAI. Requires ``langchain-openai`` (extra ``[langchain]``)."""
-        try:
-            from langchain_openai import ChatOpenAI
-        except ImportError as e:  # pragma: no cover - exercised only without the extra
-            raise RuntimeError(
-                "LangChainChatLLM.from_openai needs langchain-openai: "
-                "pip install raglib[langchain]") from e
-        return cls(ChatOpenAI(model=model, base_url=base_url, api_key=api_key,
-                              temperature=temperature, max_tokens=max_tokens,
-                              timeout=timeout, **kwargs))
-
-    @staticmethod
-    def _content_to_text(content) -> str:
-        if isinstance(content, str):
-            return content
-        if isinstance(content, list):  # some models return content blocks
-            parts = []
-            for block in content:
-                if isinstance(block, dict):
-                    parts.append(str(block.get("text", "")))
-                else:
-                    parts.append(str(block))
-            return "".join(parts)
-        return str(content or "")
-
-    def complete(self, messages: List[Message]) -> str:
-        # LangChain chat models accept OpenAI-style {"role","content"} dicts
-        result = self._model.invoke(messages)
-        return self._content_to_text(getattr(result, "content", result))
+    def __init__(self, content: Any):
+        self.content = content
 
 
 class MockLLM:
-    """Scripted LLM for tests. Each response is a string or a callable
-    (messages -> string), consumed in order. Records every call in .calls."""
+    """Scripted LangChain-style chat model for tests. Each response is a string
+    or a callable (messages -> string), consumed in order; ``.invoke`` returns
+    an AIMessage-like object whose ``.content`` is that text (or, when
+    ``as_blocks=True``, a one-element content-block list, to exercise the
+    flattening path). Records every call in ``.calls``."""
 
-    def __init__(self, responses: List[Union[str, Callable[[List[Message]], str]]]):
+    def __init__(self, responses: List[Union[str, Callable[[List[Message]], str]]],
+                 *, as_blocks: bool = False, model_name: str = "mock-llm"):
         self._responses = list(responses)
+        self._as_blocks = as_blocks
+        self.model_name = model_name
         self.calls: List[List[Message]] = []
 
-    def complete(self, messages: List[Message]) -> str:
+    def invoke(self, messages: List[Message]) -> _AIMessage:
         self.calls.append(messages)
         if not self._responses:
             raise RuntimeError("MockLLM: no scripted responses left")
         resp = self._responses.pop(0)
-        return resp(messages) if callable(resp) else resp
+        text = resp(messages) if callable(resp) else resp
+        content = [{"type": "text", "text": text}] if self._as_blocks else text
+        return _AIMessage(content)

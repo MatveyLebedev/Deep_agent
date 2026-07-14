@@ -93,6 +93,15 @@ class SearchHit:
         """`path` joined for display: 'Статья 12. … › 12.1. … › 12.1.4'."""
         return " › ".join(self.path)
 
+    @property
+    def locator(self) -> str:
+        """A stable, always-non-empty reference for the hit — for programmatic
+        keying and citation. The clause number when it has one; otherwise the
+        section path (an unnumbered clause under a titled section); and, failing
+        even that, a document-relative id. So a numberless clause is never
+        anonymous."""
+        return self.clause_number or self.breadcrumb or f"{self.doc_name or self.doc_id}#{self.clause_id}"
+
 
 @dataclass
 class SectionRef:
